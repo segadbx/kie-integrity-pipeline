@@ -1,0 +1,130 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC # Export KIE Results to Excel
+# MAGIC
+# MAGIC This notebook:
+# MAGIC 1. Reads from the KIE results view (typed, pre-parsed fields)
+# MAGIC 2. Explodes the repairs array to produce one row per repair
+# MAGIC 3. Maps view columns to the required Excel columns
+# MAGIC 4. Exports the result as an Excel file to the Databricks Volume
+
+# COMMAND ----------
+
+dbutils.widgets.text("catalog_name", "main", "Catalog Name")
+dbutils.widgets.text("schema_name", "pipeline_integrity", "Schema Name")
+dbutils.widgets.text("kie_view_name", "", "KIE View Name")
+dbutils.widgets.text("volume_path", "/Volumes/dbdemos_skhaletski/default/recoat_data/", "Volume Path")
+
+# COMMAND ----------
+
+# MAGIC %pip install openpyxl
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
+# MAGIC %run ./_validators
+
+# COMMAND ----------
+
+# Re-read widgets after Python restart
+catalog_name = validate_identifier(dbutils.widgets.get("catalog_name"), "catalog_name")
+schema_name = validate_identifier(dbutils.widgets.get("schema_name"), "schema_name")
+kie_view_name = validate_identifier(dbutils.widgets.get("kie_view_name"), "kie_view_name")
+volume_path = validate_volume_path(dbutils.widgets.get("volume_path"))
+
+# COMMAND ----------
+
+import os
+import shutil
+import tempfile
+from datetime import datetime
+import pandas as pd
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Read and Flatten KIE View
+
+# COMMAND ----------
+
+spark.sql(f"USE CATALOG {catalog_name}")
+spark.sql(f"USE SCHEMA {schema_name}")
+
+# Explode the typed repairs array — one row per repair per file.
+# Recoat repairs (repair_type = 'Recoat') populate the recoat position columns;
+# all other repair types populate the repair position columns.
+export_spark_df = spark.sql(f"""
+    SELECT
+        site_id                                                                                 AS `Dig Number`,
+        repair.repair_end                                                                       AS `Repair Date`,
+        repair.repair_type                                                                      AS `Repair Type`,
+        repair.rgw                                                                              AS `Reference Girth Weld`,
+        CASE WHEN repair.repair_type != 'Recoat' THEN repair.relative_repair_start END         AS `Relative Repair Start`,
+        CASE WHEN repair.repair_type != 'Recoat' THEN repair.relative_repair_end   END         AS `Relative Repair End`,
+        CASE WHEN repair.repair_type  = 'Recoat' THEN repair.relative_repair_start END         AS `Relative Recoat Start`,
+        CASE WHEN repair.repair_type  = 'Recoat' THEN repair.relative_repair_end   END         AS `Relative Recoat End`
+    FROM {kie_view_name}
+    LATERAL VIEW OUTER EXPLODE(repairs) AS repair
+    WHERE repair IS NOT NULL
+""")
+
+# Guard against collecting too many rows to the driver
+MAX_EXPORT_ROWS = 100_000
+row_count = export_spark_df.count()
+if row_count > MAX_EXPORT_ROWS:
+    raise ValueError(
+        f"Export has {row_count} rows, exceeding the {MAX_EXPORT_ROWS} limit. "
+        "Consider filtering or partitioning the export."
+    )
+
+export_df = export_spark_df.toPandas()
+total = len(export_df)
+print(f"Total repair rows to export: {total}")
+
+if total == 0:
+    print("No records to export. Exiting.")
+    dbutils.notebook.exit("No records to export")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Write Excel File to Volume
+
+# COMMAND ----------
+
+export_dir = os.path.join(volume_path.rstrip("/"), "exports")
+os.makedirs(export_dir, exist_ok=True)
+
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+excel_filename = f"recoat_analysis_{timestamp}.xlsx"
+excel_path = os.path.join(export_dir, excel_filename)
+
+# openpyxl uses zipfile internally which requires seekable I/O.
+# Databricks Volume FUSE mounts don't support seek, so write to a
+# local temp file first and then copy to the volume.
+with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+    tmp_path = tmp.name
+
+try:
+    export_df.to_excel(tmp_path, index=False, engine="openpyxl")
+    shutil.copy2(tmp_path, excel_path)
+finally:
+    os.unlink(tmp_path)
+
+print(f"✓ Exported {total} records to {excel_path}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Summary
+
+# COMMAND ----------
+
+print("=" * 60)
+print("Excel Export Complete!")
+print("=" * 60)
+print(f"Output file : {excel_path}")
+print(f"Records     : {total}")
+print("=" * 60)
+
+dbutils.notebook.exit(excel_path)

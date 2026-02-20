@@ -1,0 +1,254 @@
+{
+  "type": "object",
+  "properties": {
+    "operating_zone": {
+      "description": "The 'operating_zone' field must contain a string that specifies the geographical or operational area where the pipeline is located. This information is crucial for identifying the context of the pipeline operations and ensuring compliance with regional regulations. The value should be concise and clearly indicate the specific zone, such as a city, region, or designated operational area.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "pipeline_name": {
+      "description": "The 'pipeline_name' field must contain the official name of the pipeline as designated by the project documentation. This name should be a string and must accurately reflect the identity of the pipeline within the context of the project, ensuring consistency with other related records. It is essential for tracking and referencing the pipeline throughout the inspection and maintenance processes.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "project_manager": {
+      "description": "The project_manager field must contain the full name of the individual responsible for overseeing the project. This should be a string value that includes both first and last names, and it must not be null. Ensure that the name is accurately extracted as it is critical for identifying the primary contact for project-related inquiries.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "field_integrity_supervisor": {
+      "description": "The field_integrity_supervisor must contain the name of the individual responsible for overseeing the integrity of the pipeline during inspections and maintenance activities. This should be a string value representing the supervisor's full name, ensuring clarity and accountability in the management of pipeline integrity.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "location": {
+      "description": "The 'location' field must contain the specific geographic location where the pipeline is situated, expressed as a string. This should include details such as the city, state, and any relevant landmarks or coordinates, ensuring clarity for identification and mapping purposes.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "pipe_diameter_mm": {
+      "description": "The 'pipe_diameter_mm' field must contain the diameter of the pipeline expressed in millimeters (mm). This value should be a positive numeric value representing the nominal diameter of the pipe as specified in engineering documents, ensuring accurate representation for design and safety assessments.",
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "site_id": {
+      "description": "The field must contain a unique identifier for the site where the pipeline inspection is conducted. This identifier is essential for tracking and referencing specific sites within the project and should be extracted as a whole number without any decimal points or additional characters.\n\nHere are the field label synonyms:\n- Site Name\n- Dig Number\n\n\nHere are some examples of the values:\n- GWD 16\n- Dig #1\n- JT 388 \n- Dig #9 - 2011",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "inspection_start": {
+      "description": "The field must contain the date, or date and time when the inspection process begins. \nThis field is essential for tracking the duration and scheduling of inspections within the pipeline project.\n\nHere are the value possible format examples:\n- formatted as an ISO 8601 string (e.g., 'YYYY-MM-DDTHH:MM:SSZ').\n- Dec 09, 2009\n- October 17, 2017\n\nThis value relates only to an inspection, not a repair date.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "inspection_end": {
+      "description": "The field must contain the date, or date and time when the inspection process concludes. \nThis field is critical for tracking the duration of inspections and must reflect the exact timestamp of the end of the inspection activities.\n\nHere are the value possible format examples:\n- formatted as an ISO 8601 string (e.g., 'YYYY-MM-DDTHH:MM:SSZ').\n- Dec 09, 2009\n- October 17, 2017\n\nThis value relates only to an inspection, not a repair date.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "client_project_engineer": {
+      "description": "The client_project_engineer field must contain the full name of the engineer responsible for overseeing the project on behalf of the client. This information should be extracted as a string and must not be null. Ensure that the name is formatted correctly, including any relevant titles or designations.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "pipeline_system": {
+      "description": "The 'pipeline_system' field must contain the name or designation of the pipeline system being referenced. This should be a string value that clearly identifies the specific system, such as its operational name or code, and must not be null. Ensure that the entry is concise and accurately reflects the system's identity as used in project documentation.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "max_allowable_operating_pressure_kPa": {
+      "description": "This field captures the maximum allowable operating pressure of the pipeline system in kilopascals (kPa). Extract a numeric value representing the pressure limit that the pipeline can safely handle during operation. Ensure that the value is a non-negative integer and is accurately sourced from relevant engineering documents or specifications.",
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "repairs": {
+      "description": "This field contains an array of objects detailing the repair activities performed on the pipeline.\n\nThe repair data usually are presented (but may not be specified) with the following data (tables or chapters in report):\n1) Sleeve Installation, Sleeve Repairs, and similar\na) Sleeve Type (e.g., Compression, Composite, Bolted, Pressure Containment, Reinforcement, and other). \nb) Manufacturer or Brand Name (e.g., Clockspring, Petro Sleeve, PLP, Other)\nc) Serial Number (6-359-21-198, )\nd) Axial Distance (in meters or millimeters, e.g., start: 1.09, end: 1.65; Axial Start (mm): -6100, Axial End (mm): 3600)\nor Coating Start (in meters or millimeters, e.g., Coating Start (m): -18.74, Coating End (m): 7.77)\ne) Total Coating Length or Axial Length of Coating (in meters or millimeters, e.g., 9710;  )\n\nSleeve Information Comments, e.g., \"One 18inch petroline sleeve was installed sleeve # 6-359-17-389 MPI was performed on all bar welds.\" will tell the report contains repair records that can be presented as tables or free text. A sleeve repair comment can be specified before of after the repair records.\n\n2) New Coating or Recoat (recoating), Recoat Information and similar\na) Axial Distance (in meters or millimeters, e.g., start: 1.09, end: 1.65; Axial Start (mm): -6100, Axial End (mm): 3600)\nb) Manufacturer or Brand Name (e.g., Clockspring, Petro Sleeve, PLP, Other)\nc) Coating Type or Coating Brand (e.g., RD-6, RD6, Geotextile Tape)\nd) Application Method (e.g., Hand, Hand Wrap)\ne) Application Procedure (e.g., Man pec.)\nf) Surface Preparation (e.g., Abrasive)\nAdditionally, the recoat records might come with Primer Type, Temperature, Relative Humidity.\n\nRecoat comment can be specified before of after the recoat records. For example: \"Pipe was then sandblasted, primed with Polyguard 600 and recoated with Polyguard RD6 coating.\"\n\nEach repair has a reference girth weld (RGW) or Reference Point No., e.g., 950, 141, etc.\n\nHere are a few examples of repair records:\n> Recoat Information (repair type is Recoat)\nRecoat Area = 1\nReference Girth Weld = 141\nAxial Start (mm) = -6110\nAxial End (mm) = 3600\nAxial Length of Coating (mm) = 9710\nCoating Type = RD6\nApplication Method = Hand\nPrimer Type = Polyguard 600\n\n> Sleeve Installation (repair type is Compression Sleeve)\nAxial Distance (m) Start = 11.250 End = 11.860\nSleeve Type = Compression\nManufacturer = Petro Sleeve\n\nIf no repair activities are performed, this field can be null.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "repair_start": {
+                "description": "The field must contain the date or date and time when the repair process begins. \nThis field is essential for tracking the duration and scheduling of repair within the pipeline project.\n\nHere are the possible (might have other formats) value format examples:\n- formatted as an ISO 8601 string (e.g., 'YYYY-MM-DDTHH:MM:SSZ').\n- Dec 09, 2009\n- October 17, 2017\n\nImportant: This value relates only to a repair, not an inspection start date.\n\nIf repair date or installation date is not specified but the 'repair_end' specified, than the field must have the same value as the `repair_end` field.",
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "repair_end": {
+                "description": "The field must contain the date or date and time when the repair process finishes (date installed). \nThis field is essential for tracking the duration and scheduling of repair within the pipeline project.\n\nHere are the possible (might have other formats) value format examples:\n- formatted as an ISO 8601 string (e.g., 'YYYY-MM-DDTHH:MM:SSZ').\n- Dec 09, 2009\n- October 17, 2017\n\nImportant: This value relates only to a repair, not an inspection start date.\n\nIf repair date or installation date is not specified but the 'repair_start' specified, than the field must have the same value as the `repair_start` field.",
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "relative_repair_start": {
+                "description": "The 'relative_repair_start' field must contain a numeric value representing the starting point in meters or millimeters where the repair process begins on the pipeline.\nThis value can be a negative number and is crucial for accurately documenting the extent of repair type applied during maintenance activities. Ensure that the measurement is precise and corresponds to the pipeline's physical layout.\n\nThe value comes under the following labels:\n- Axial Start (mm), e.g., 5600, 1300, 5,600\n- Coating Start (m), e.g., -5.23, -5,23 \nand similar.",
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "relative_repair_end": {
+                "description": "The 'relative_repair_end' field must contain a numeric value representing the starting point in meters or millimeters where the repair process ends on the pipeline.\nThis value can be a negative number and is crucial for accurately documenting the extent of repair type applied during maintenance activities. Ensure that the measurement is precise and corresponds to the pipeline's physical layout.\n\nThe value comes under the following labels:\n- Axial End (mm or m), e.g., 5600, 1300, 5,600, 1.65, 1.09.\n- Coating End (mm or m), e.g., -5.23, -5,23, 3600\nand similar.",
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reference_units": {
+                "description": "This field requires of the instruction of measurement units used for the repair records, e.g., millimeters (mm), meters (m), etc.\n\nThe field serves the measurement reference for 'relative_repair_start' and 'relative_repair_end' fields (they bear only values without units)",
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "repair_type": {
+                "description": "The field holds the repair type. Based on the type of repair records in the report the value can be as follows:\n\nAbandoned\nArmor Plate\nClock Spring\nCoating not Removed\nComposite\nCompression Sleeve\nCut Out\nDeposition of Weld Metal \nFitting\nFull Sole\nGasso Clamp (Both Halves)\nGirth Weld Sleeve\nHalf Sole\nHistorical Repair of Unknown Type\nHot Tap\nLap Weld Full Sole\nMechanical Clamp - Pressure Containing\nNone\nOther\nPatch\nPetro Sleeve\nPlitco Split Sleeve\nPuddle Weld\nPurge\nRecoat\nRemove By Grinding\nStand Off Sleeve\nStopple Tee\nTemporary Clamp\nTemporary Repair 12 Months\nTemporary Repair 18 Months\nTemporary Repair 24 Months\nTemporary Repair 3 Months\nTemporary Repair 6 Months\nTemporary Repair 9 Months\nTOR\nType \"A\" Reinforcement Sleeve\nType \"B\" Pressure Sleeve\nUnknown\nWeld+End\nWrinkle Belly",
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rgw": {
+                "description": "The field must contain a unique identifier for the girth weld number where the pipeline inspection or/and repair are conducted. \n\nThe value may come in the records under labels as follows:\n- Reference Girth Weld number, e.g., 950, \n- Reference Girth Weld, e.g., 141, 650\n- Reference Point, e.g., 4200\nand similar\n\nThe value may not be present with the repair values. Therefore, the value is the same as the 'site_id' has but only number. ",
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "repair_start",
+              "repair_end",
+              "relative_repair_start",
+              "relative_repair_end",
+              "reference_units",
+              "repair_type",
+              "rgw"
+            ]
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "operating_zone",
+    "pipeline_name",
+    "project_manager",
+    "field_integrity_supervisor",
+    "location",
+    "pipe_diameter_mm",
+    "site_id",
+    "inspection_start",
+    "inspection_end",
+    "client_project_engineer",
+    "pipeline_system",
+    "max_allowable_operating_pressure_kPa",
+    "repairs"
+  ]
+}

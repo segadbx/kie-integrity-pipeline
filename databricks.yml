@@ -1,0 +1,50 @@
+bundle:
+  name: pipeline_integrity
+
+variables:
+  catalog_name:
+    description: "Unity Catalog name for storing tables. Set via BUNDLE_VAR_catalog_name env variable."
+
+  schema_name:
+    description: "Schema name for storing tables. Set via BUNDLE_VAR_schema_name env variable."
+
+  volume_path:
+    description: "Path to the Databricks Volume containing input files. Set via BUNDLE_VAR_volume_path env variable."
+
+  kie_endpoint_name:
+    description: "KIE (Knowledge Information Extraction) endpoint name. Set via BUNDLE_VAR_kie_endpoint_name env variable."
+
+  checkpoint_table:
+    description: Table name for tracking processed files
+    default: ${var.catalog_name}.${var.schema_name}.processed_files_checkpoint
+
+  parsed_table:
+    description: Table name for storing parsed file content
+    default: ${var.catalog_name}.${var.schema_name}.parsed_files
+
+  ai_query_table:
+    description: Table name for storing AI query results
+    default: ${var.catalog_name}.${var.schema_name}.ai_query_results
+
+  kie_view_name:
+    description: Unity Catalog view name for KIE schema results
+    default: ${var.catalog_name}.${var.schema_name}.kie_results
+
+  service_principal_name:
+    description: Service principal name for production job execution
+    default: ""
+
+targets:
+  dev:
+    default: true
+
+  prod:
+    mode: production
+    workspace:
+      host: ${workspace.host}
+      root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
+    run_as:
+      service_principal_name: ${var.service_principal_name}
+
+include:
+  - resources/*.yml

@@ -1,0 +1,10 @@
+resources:
+  schemas:
+    uc_schema:
+      name: ${var.schema_name}
+      catalog_name: ${var.catalog_name}
+  volumes:
+    reports_volume:
+      name: reports
+      catalog_name: ${var.catalog_name}
+      schema_name: ${var.schema_name}
