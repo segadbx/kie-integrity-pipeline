@@ -28,6 +28,37 @@ kie_endpoint_name = validate_endpoint_name(dbutils.widgets.get("kie_endpoint_nam
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## Check KIE Endpoint Availability
+
+# COMMAND ----------
+
+import requests
+
+def is_endpoint_ready(endpoint_name):
+    """Check if the serving endpoint is in READY state."""
+    token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
+    host = spark.conf.get("spark.databricks.workspaceUrl")
+    resp = requests.get(
+        f"https://{host}/api/2.0/serving-endpoints/{endpoint_name}",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
+    state = resp.json().get("state", {}).get("ready", "NOT_READY")
+    return state == "READY", f"Endpoint state: {state}"
+
+endpoint_ready, endpoint_status = is_endpoint_ready(kie_endpoint_name)
+print(f"KIE endpoint '{kie_endpoint_name}': {endpoint_status}")
+
+if not endpoint_ready:
+    msg = f"SKIPPED: KIE endpoint '{kie_endpoint_name}' is not available. {endpoint_status}"
+    print(msg)
+    dbutils.notebook.exit(msg)
+
+# COMMAND ----------
+
 from pyspark.sql import functions as F
 from pyspark.sql.types import StringType
 
@@ -142,7 +173,7 @@ SELECT
     file_path,
     file_name,
     input AS input_text,
-    PARSE_JSON(response.result) AS response,
+    response.result AS response,
     CAST(response.errorMessage AS STRING) AS error_message,
     current_timestamp() AS query_timestamp
 FROM query_results

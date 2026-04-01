@@ -50,6 +50,25 @@ import pandas as pd
 spark.sql(f"USE CATALOG {catalog_name}")
 spark.sql(f"USE SCHEMA {schema_name}")
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Check KIE View Availability
+
+# COMMAND ----------
+
+try:
+    has_data = not spark.table(kie_view_name).limit(1).isEmpty()
+except Exception:
+    has_data = False
+
+if not has_data:
+    msg = "SKIPPED: KIE view has no data — upstream processing may have been skipped."
+    print(msg)
+    dbutils.notebook.exit(msg)
+
+# COMMAND ----------
+
 # Explode the typed repairs array — one row per repair per file.
 # Recoat repairs (repair_type = 'Recoat') populate the recoat position columns;
 # all other repair types populate the repair position columns.
