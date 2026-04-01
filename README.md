@@ -8,55 +8,49 @@ This pipeline automates the ingestion, parsing, and AI-powered analysis of PDF a
 
 - **Automated File Processing**: Monitors a Databricks Volume for new files
 - **Smart Parsing**: Extracts content from PDFs (using `ai_parse`) and XLSX/XLSM files (converted to Markfown)
-- **AI-Powered Analysis**: Processes extracted content through Databricks AI endpoints
+- **AI-Powered Analysis**: Extracts structured data using Databricks `ai_extract` with a JSON schema
 - **Data Tracking**: Maintains checkpoints to avoid reprocessing files
 - **Analytics Ready**: Outputs structured data ready for Genie Spaces and AI/BI Dashboards
 
 ## Architecture
 
-The solution follows a **3-stage workflow** running on **Databricks Serverless Compute**:
+The solution follows a **2-stage workflow** running on **Databricks Serverless Compute**:
 
-**Stage 1 — One-Time Setup** (manual, via Databricks UI):
-1. **Create Agent Bricks KIE Endpoint**: Create an Agent Bricks Information Extraction endpoint, pointing it at the `parsed_files` table's `text` column as the data source. This produces a KIE serving endpoint name needed by the processing job.
+**Stage 1 — Ingestion Job** (`ingestion_job`):
+1. **Setup Tables**: Creates the necessary Unity Catalog tables and schema
+2. **Parse Files**: Scans the volume, identifies new files, and extracts content
+3. **Trigger Processing**: Automatically chains the processing job (see below)
 
-**Stage 2 — Ingestion Job** (`ingestion_job`):
-2. **Setup Tables**: Creates the necessary Unity Catalog tables and schema
-3. **Parse Files**: Scans the volume, identifies new files, and extracts content
-4. **Trigger Processing**: Automatically chains the processing job (see below)
+**Stage 2 — Processing Job** (`processing_job`):
+4. **AI Extract Processing**: Extracts structured data from parsed content using `ai_extract` with the JSON schema defined in [`kie_schema.json`](kie_schema.json)
+5. **Create KIE View**: Creates a typed view from extraction results
+6. **Export to Excel**: Exports repairs data to Excel
 
-**Stage 3 — Processing Job** (`processing_job`):
-5. **AI Query Processing**: Analyzes parsed content using the KIE endpoint from Stage 1
-6. **Create KIE View**: Creates a typed view from AI results
-7. **Export to Excel**: Exports repairs data to Excel
-
-The ingestion job automatically triggers the processing job via a `run_job_task` after new files are parsed. This means the full pipeline — from file arrival to Excel export — runs end-to-end without manual intervention once the KIE endpoint is set up.
+The ingestion job automatically triggers the processing job via a `run_job_task` after new files are parsed. This means the full pipeline — from file arrival to Excel export — runs end-to-end without manual intervention.
 
 All automated tasks use serverless compute for automatic scaling, fast startup, and cost optimization.
 
 ### Data Flow
 
 ```
-Stage 1 — One-Time Setup (manual):
-  Parsed Table (text column) → Databricks UI → KIE Serving Endpoint
-
-Stage 2 — Ingestion Job (file arrival trigger):
+Stage 1 — Ingestion Job (file arrival trigger):
   Databricks Volume → Setup Tables → Parse Files → Parsed Table
                                           ↓               ↓
                                    Checkpoint Table   Triggers Processing Job
 
-Stage 3 — Processing Job (auto-triggered by ingestion):
-  Parsed Table → AI Query (KIE endpoint) → Results Table → KIE View → Excel Export
-                                                               ↓
-                                                      Genie Space/Dashboard
+Stage 2 — Processing Job (auto-triggered by ingestion):
+  Parsed Table → AI Extract (kie_schema.json) → Results Table → KIE View → Excel Export
+                                                                    ↓
+                                                           Genie Space/Dashboard
 ```
 
 ## Prerequisites
 
 - Databricks Workspace with Unity Catalog enabled
 - **Databricks Serverless Compute enabled**
-- Databricks Runtime 15.4+ (for AI functions)
-- Access to the AI endpoint
+- Databricks Runtime 15.4+ (for AI functions like `ai_extract`)
 - A Databricks Volume for input files
+- A Databricks Volume for Excel exports
 - Databricks CLI installed for deployment
 
 ## Quick Start
@@ -100,7 +94,7 @@ Edit `.env` with your workspace-specific values:
 BUNDLE_VAR_catalog_name=my_catalog
 BUNDLE_VAR_schema_name=pipeline_integrity
 BUNDLE_VAR_volume_path=/Volumes/my_catalog/pipeline_integrity/reports/
-BUNDLE_VAR_kie_endpoint_name=kie-extraction
+BUNDLE_VAR_export_volume_path=/Volumes/my_catalog/pipeline_integrity/exports/
 BUNDLE_VAR_service_principal_name=
 ```
 
@@ -115,36 +109,29 @@ source set_env.sh
 | `BUNDLE_VAR_catalog_name` | Unity Catalog name for storing tables | `my_catalog` |
 | `BUNDLE_VAR_schema_name` | Schema name for storing tables | `pipeline_integrity` |
 | `BUNDLE_VAR_volume_path` | Full path to the Databricks Volume with input files | `/Volumes/my_catalog/my_schema/reports/` |
-| `BUNDLE_VAR_kie_endpoint_name` | KIE serving endpoint name (from Stage 1 setup) | `kie-extraction` |
+| `BUNDLE_VAR_export_volume_path` | Full path to the Databricks Volume for Excel exports | `/Volumes/my_catalog/my_schema/exports/` |
 | `BUNDLE_VAR_service_principal_name` | Service principal for prod runs (optional) | `""` |
 
-> **Note**: `kie_endpoint_name` must be set before deployment so that the processing job can reference it when auto-triggered by the ingestion job. You can also pass variables inline with `--var` flags if preferred.
+> **Note**: You can also pass variables inline with `--var` flags if preferred.
 
 ### 5. Deploy and Run
 
 ```bash
-# Stage 1 (one-time): Create an Agent Bricks KIE endpoint via the Databricks UI
-#   1. Navigate to Machine Learning → Serving in the Databricks UI
-#   2. Create a new Agent Bricks Information Extraction endpoint
-#   3. Point it at the `parsed_files` table, `text` column as the data source
-#   4. Note the endpoint name and set it in your .env file
-
-# Load environment variables (if not already loaded)
+# Load environment variables
 source set_env.sh
 
 # Validate and deploy the bundle
 databricks bundle validate
 databricks bundle deploy -t dev
 
-# Stage 2: Run the ingestion job (processing job triggers automatically)
+# Run the ingestion job (processing job triggers automatically)
 databricks bundle run ingestion_job -t dev
 
-# The ingestion job will automatically trigger the processing job after
-# new files are parsed. No need to run processing_job manually.
-
-# The processing job can still be run independently if needed:
+# The processing job can also be run independently if needed:
 databricks bundle run processing_job -t dev
 ```
+
+The extraction schema is defined in [`kie_schema.json`](kie_schema.json) and is automatically deployed with the bundle. The processing job's `ai_extract` function reads this schema at runtime to extract structured fields from the parsed file content.
 
 ## Configuration
 
@@ -157,11 +144,11 @@ All configurable values are defined in `databricks.yml`. The deployment-time var
 | `catalog_name` | Unity Catalog name | **Required (deploy time)** |
 | `schema_name` | Schema name | **Required (deploy time)** |
 | `volume_path` | Path to input files volume | **Required (deploy time)** |
-| `kie_endpoint_name` | KIE AI endpoint name | **Required (deploy time)** — set via `BUNDLE_VAR_kie_endpoint_name` |
 | `checkpoint_table` | Table tracking processed files | `<catalog>.<schema>.processed_files_checkpoint` |
 | `parsed_table` | Table storing parsed content | `<catalog>.<schema>.parsed_files` |
 | `ai_query_table` | Table storing AI analysis results | `<catalog>.<schema>.ai_query_results` |
 | `kie_view_name` | View for typed KIE results | `<catalog>.<schema>.kie_results` |
+| `export_volume_path` | Path to volume for Excel exports | `/Volumes/<catalog>/<schema>/exports/` |
 | `service_principal_name` | Service principal for prod runs | `""` |
 
 ### Targets
@@ -173,17 +160,7 @@ All configurable values are defined in `databricks.yml`. The deployment-time var
 
 ### Running the Pipeline
 
-The pipeline runs automatically once deployed:
-
-**One-Time Setup — Create an Agent Bricks KIE Endpoint**
-
-1. Open the Databricks UI
-2. Navigate to **Machine Learning** → **Serving**
-3. Create a new **Agent Bricks Information Extraction** endpoint
-4. Configure the data source: select the `parsed_files` table with the `text` column
-5. Deploy the endpoint and set `BUNDLE_VAR_kie_endpoint_name` to its name in your `.env` file
-
-**Automated Flow — Ingestion Triggers Processing**
+Once deployed (see [Quick Start](#5-deploy-and-run)), the pipeline runs automatically:
 
 ```bash
 # Upload files to the volume — the ingestion job triggers automatically
@@ -197,6 +174,15 @@ databricks bundle run processing_job -t dev
 ```
 
 The ingestion job's `trigger_processing` task automatically launches the processing job after new files are parsed. Both jobs remain independently runnable for debugging or reprocessing.
+
+### Updating the Extraction Schema
+
+The extraction schema is defined in [`kie_schema.json`](kie_schema.json) and deployed with the bundle. To update it:
+
+1. Edit `kie_schema.json` with the desired field definitions
+2. Redeploy the bundle (`databricks bundle deploy -t dev`)
+
+The processing job reads the schema at runtime, so changes take effect on the next run.
 
 ### Monitoring
 
@@ -308,7 +294,7 @@ paa_pipeline_integrity/
 │   ├── _validators.py          # Shared input validation helpers
 │   ├── setup_tables.py         # Creates UC tables
 │   ├── parse_files.py          # File parsing logic (PDF + Excel)
-│   ├── ai_query_processing.py  # AI query processing via KIE endpoint
+│   ├── ai_query_processing.py  # AI extract processing via kie_schema.json
 │   ├── create_kie_view.py      # Creates typed view from AI results
 │   ├── export_to_excel.py      # Exports repairs data to Excel
 │   └── setup_genie_and_dashboard.py  # Analytics setup helper
@@ -346,11 +332,11 @@ databricks workspace import-dir ./local_notebooks/ src/
 - Verify file extensions are `.pdf`, `.xlsx`, or `.xls`
 - Check permissions on the volume
 
-**Issue**: AI parse/query failures
+**Issue**: AI extract/parse failures
 
-- Verify AI endpoint is accessible
-- Check endpoint name is correct
-- Review error messages in checkpoint/results tables
+- Check that the `kie_schema.json` is valid JSON and deployed with the bundle
+- Verify that Databricks Runtime supports `ai_extract` (15.4+)
+- Review error messages in the `ai_query_results` table
 
 **Issue**: XLSX parsing errors
 

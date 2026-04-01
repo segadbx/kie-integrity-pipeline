@@ -67,7 +67,6 @@ resources:
               schema_name: ${var.schema_name}
               parsed_table: ${var.parsed_table}
               ai_query_table: ${var.ai_query_table}
-              kie_endpoint_name: ${var.kie_endpoint_name}
 
         - task_key: create_kie_view
           depends_on:
@@ -95,7 +94,7 @@ resources:
               catalog_name: ${var.catalog_name}
               schema_name: ${var.schema_name}
               kie_view_name: ${var.kie_view_name}
-              volume_path: ${var.volume_path}
+              export_volume_path: ${var.export_volume_path}
 
       max_concurrent_runs: 1
 

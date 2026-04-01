@@ -30,6 +30,10 @@ variables:
     description: Unity Catalog view name for KIE schema results
     default: ${var.catalog_name}.${var.schema_name}.kie_results
 
+  export_volume_path:
+    description: "Path to the Databricks Volume for Excel exports. Set via BUNDLE_VAR_export_volume_path env variable."
+    default: /Volumes/${var.catalog_name}/${var.schema_name}/exports/
+
   service_principal_name:
     description: Service principal name for production job execution
     default: ""

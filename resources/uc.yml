@@ -8,3 +8,7 @@ resources:
       name: reports
       catalog_name: ${var.catalog_name}
       schema_name: ${var.schema_name}
+    exports_volume:
+      name: exports
+      catalog_name: ${var.catalog_name}
+      schema_name: ${var.schema_name}

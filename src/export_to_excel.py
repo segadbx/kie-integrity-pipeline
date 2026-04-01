@@ -13,7 +13,7 @@
 dbutils.widgets.text("catalog_name", "main", "Catalog Name")
 dbutils.widgets.text("schema_name", "pipeline_integrity", "Schema Name")
 dbutils.widgets.text("kie_view_name", "", "KIE View Name")
-dbutils.widgets.text("volume_path", "/Volumes/dbdemos_skhaletski/default/recoat_data/", "Volume Path")
+dbutils.widgets.text("export_volume_path", "", "Export Volume Path")
 
 # COMMAND ----------
 
@@ -30,7 +30,7 @@ dbutils.library.restartPython()
 catalog_name = validate_identifier(dbutils.widgets.get("catalog_name"), "catalog_name")
 schema_name = validate_identifier(dbutils.widgets.get("schema_name"), "schema_name")
 kie_view_name = validate_identifier(dbutils.widgets.get("kie_view_name"), "kie_view_name")
-volume_path = validate_volume_path(dbutils.widgets.get("volume_path"))
+export_volume_path = validate_volume_path(dbutils.widgets.get("export_volume_path"))
 
 # COMMAND ----------
 
@@ -111,12 +111,11 @@ if total == 0:
 
 # COMMAND ----------
 
-export_dir = os.path.join(volume_path.rstrip("/"), "exports")
-os.makedirs(export_dir, exist_ok=True)
+os.makedirs(export_volume_path.rstrip("/"), exist_ok=True)
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 excel_filename = f"recoat_analysis_{timestamp}.xlsx"
-excel_path = os.path.join(export_dir, excel_filename)
+excel_path = os.path.join(export_volume_path.rstrip("/"), excel_filename)
 
 # openpyxl uses zipfile internally which requires seekable I/O.
 # Databricks Volume FUSE mounts don't support seek, so write to a
