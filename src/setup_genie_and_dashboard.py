@@ -8,13 +8,21 @@
 
 # COMMAND ----------
 
+# MAGIC %run ./_validators
+
+# COMMAND ----------
+
 dbutils.widgets.text("catalog_name", "main", "Catalog Name")
 dbutils.widgets.text("schema_name", "pipeline_integrity", "Schema Name")
 dbutils.widgets.text("ai_query_table", "", "AI Query Table")
+dbutils.widgets.text("checkpoint_table", "", "Checkpoint Table")
+dbutils.widgets.text("parsed_table", "", "Parsed Table")
 
-catalog_name = dbutils.widgets.get("catalog_name")
-schema_name = dbutils.widgets.get("schema_name")
-ai_query_table = dbutils.widgets.get("ai_query_table")
+catalog_name = validate_identifier(dbutils.widgets.get("catalog_name"), "catalog_name")
+schema_name = validate_identifier(dbutils.widgets.get("schema_name"), "schema_name")
+ai_query_table = validate_identifier(dbutils.widgets.get("ai_query_table"), "ai_query_table")
+checkpoint_table = validate_identifier(dbutils.widgets.get("checkpoint_table"), "checkpoint_table")
+parsed_table = validate_identifier(dbutils.widgets.get("parsed_table"), "parsed_table")
 
 # COMMAND ----------
 
@@ -49,8 +57,8 @@ for table in tables:
 # MAGIC    - **Description**: `Natural language interface for querying pipeline integrity results`
 # MAGIC    - **Tables**: Add the following tables:
 # MAGIC      - `${ai_query_table}` (main table)
-# MAGIC      - Optionally add `${catalog_name}.${schema_name}.parsed_files`
-# MAGIC      - Optionally add `${catalog_name}.${schema_name}.processed_files_checkpoint`
+# MAGIC      - Optionally add the parsed_files table
+# MAGIC      - Optionally add the checkpoint table
 # MAGIC 5. Click **Create**
 # MAGIC
 # MAGIC ### Option 2: Via API (Programmatic)
@@ -65,8 +73,8 @@ print("=" * 60)
 print(f"Recommended Name: Pipeline Integrity Analysis")
 print(f"Main Table: {ai_query_table}")
 print(f"Additional Tables:")
-print(f"  - {catalog_name}.{schema_name}.parsed_files")
-print(f"  - {catalog_name}.{schema_name}.processed_files_checkpoint")
+print(f"  - {parsed_table}")
+print(f"  - {checkpoint_table}")
 print("=" * 60)
 
 # COMMAND ----------
@@ -132,8 +140,8 @@ WITH stats AS (
         COUNT(DISTINCT p.file_path) as parsed_files,
         COUNT(DISTINCT aq.file_path) as ai_queried_files,
         COUNT(DISTINCT CASE WHEN aq.error_message IS NULL AND aq.response IS NOT NULL THEN aq.file_path END) as successful_ai_queries
-    FROM {catalog_name}.{schema_name}.processed_files_checkpoint c
-    LEFT JOIN {catalog_name}.{schema_name}.parsed_files p ON c.file_path = p.file_path
+    FROM {checkpoint_table} c
+    LEFT JOIN {parsed_table} p ON c.file_path = p.file_path
     LEFT JOIN {ai_query_table} aq ON p.file_path = aq.file_path
     WHERE c.processing_status = 'success'
 )

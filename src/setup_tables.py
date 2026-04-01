@@ -74,7 +74,9 @@ CREATE TABLE IF NOT EXISTS {checkpoint_table} (
 USING DELTA
 TBLPROPERTIES (
     'delta.enableChangeDataFeed' = 'true',
-    'delta.columnMapping.mode' = 'name'
+    'delta.columnMapping.mode' = 'name',
+    'delta.autoOptimize.autoCompact' = 'true',
+    'delta.autoOptimize.optimizeWrite' = 'true'
 )
 COMMENT 'Pipeline processing checkpoint table. Tracks every file discovered in the input Volume to prevent duplicate processing. Each row represents one source file (PDF or Excel) and records whether it was successfully parsed or failed. Use this table to monitor ingestion completeness, identify failed files, and audit processing history.'
 """)
@@ -101,7 +103,7 @@ CREATE TABLE IF NOT EXISTS {parsed_table} (
     text STRING
         COMMENT 'Full extracted text content from the source file. For PDFs this is the output of ai_parse_document (structured text with tables). For Excel files this is a Markdown representation with sheet headings and tables.',
     num_pages INT
-        COMMENT 'Number of pages (PDFs) or sheets (Excel files) found in the document. 0 if unknown or parsing failed.',
+        COMMENT 'Number of pages (PDFs) or sheets (Excel files) found in the document. Always 0 for PDF files (page count not available from ai_parse_document). For Excel files, equals the number of sheets.',
     metadata STRING
         COMMENT 'JSON string with additional parsing metadata. For Excel files contains sheet names and count. For errors contains the error details.',
     parsed_timestamp TIMESTAMP
@@ -111,7 +113,9 @@ CREATE TABLE IF NOT EXISTS {parsed_table} (
 USING DELTA
 TBLPROPERTIES (
     'delta.enableChangeDataFeed' = 'true',
-    'delta.columnMapping.mode' = 'name'
+    'delta.columnMapping.mode' = 'name',
+    'delta.autoOptimize.autoCompact' = 'true',
+    'delta.autoOptimize.optimizeWrite' = 'true'
 )
 COMMENT 'Stores extracted text content from pipeline inspection documents (PDF and Excel files). PDFs are parsed using Databricks ai_parse_document; Excel files are converted to Markdown via the unstructured library. This table is the input to the AI query processing step. Join to the checkpoint table on file_path to correlate parsing results with processing status.'
 """)
@@ -146,7 +150,9 @@ CREATE TABLE IF NOT EXISTS {ai_query_table} (
 USING DELTA
 TBLPROPERTIES (
     'delta.enableChangeDataFeed' = 'true',
-    'delta.columnMapping.mode' = 'name'
+    'delta.columnMapping.mode' = 'name',
+    'delta.autoOptimize.autoCompact' = 'true',
+    'delta.autoOptimize.optimizeWrite' = 'true'
 )
 COMMENT 'Stores AI-powered Knowledge Information Extraction (KIE) results for pipeline inspection documents. Each row contains the structured data extracted from one source file by the AI endpoint, including pipeline metadata (name, owner, location, dimensions), inspection dates, and a detailed repairs array with repair types, positions, and reference girth welds. The response column is VARIANT for flexible querying. The kie_results view provides a typed, column-level projection of this data. Join to parsed_files on file_path to see the original document text alongside the AI extraction.'
 """)

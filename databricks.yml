@@ -11,9 +11,6 @@ variables:
   volume_path:
     description: "Path to the Databricks Volume containing input files. Set via BUNDLE_VAR_volume_path env variable."
 
-  kie_endpoint_name:
-    description: "KIE (Knowledge Information Extraction) endpoint name. Set via BUNDLE_VAR_kie_endpoint_name env variable."
-
   checkpoint_table:
     description: Table name for tracking processed files
     default: ${var.catalog_name}.${var.schema_name}.processed_files_checkpoint
@@ -30,8 +27,16 @@ variables:
     description: Unity Catalog view name for KIE schema results
     default: ${var.catalog_name}.${var.schema_name}.kie_results
 
+  export_volume_path:
+    description: "Path to the Databricks Volume for Excel exports. Set via BUNDLE_VAR_export_volume_path env variable."
+    default: /Volumes/${var.catalog_name}/${var.schema_name}/exports/
+
   service_principal_name:
     description: Service principal name for production job execution
+    default: ""
+
+  notification_email:
+    description: "Email address for job failure notifications. Set via BUNDLE_VAR_notification_email env variable."
     default: ""
 
 targets:
@@ -43,8 +48,17 @@ targets:
     workspace:
       host: ${workspace.host}
       root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
+      artifact_path: /Workspace/.bundle/${bundle.name}/${bundle.target}/artifacts
     run_as:
       service_principal_name: ${var.service_principal_name}
+
+sync:
+  exclude:
+    - .env*
+    - set_env.sh
+    - README.md
+    - improvements.md
+    - .DS_Store
 
 include:
   - resources/*.yml

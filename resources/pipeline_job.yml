@@ -28,6 +28,7 @@ resources:
           timeout_seconds: 3600
           max_retries: 1
           min_retry_interval_millis: 60000
+          environment_key: parse_files_env
           notebook_task:
             notebook_path: ../src/parse_files.py
             base_parameters:
@@ -40,6 +41,7 @@ resources:
         - task_key: trigger_processing
           depends_on:
             - task_key: parse_files
+          timeout_seconds: 10800
           run_job_task:
             job_id: ${resources.jobs.processing_job.id}
 
@@ -47,6 +49,18 @@ resources:
 
       notification_settings:
         no_alert_for_skipped_runs: true
+
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+
+      environments:
+        - environment_key: parse_files_env
+          spec:
+            client: "1"
+            dependencies:
+              - "unstructured[xlsx]"
+              - markdownify
 
       tags:
         project: pipeline_integrity
@@ -67,7 +81,6 @@ resources:
               schema_name: ${var.schema_name}
               parsed_table: ${var.parsed_table}
               ai_query_table: ${var.ai_query_table}
-              kie_endpoint_name: ${var.kie_endpoint_name}
 
         - task_key: create_kie_view
           depends_on:
@@ -89,18 +102,30 @@ resources:
           timeout_seconds: 1800
           max_retries: 1
           min_retry_interval_millis: 30000
+          environment_key: export_excel_env
           notebook_task:
             notebook_path: ../src/export_to_excel.py
             base_parameters:
               catalog_name: ${var.catalog_name}
               schema_name: ${var.schema_name}
               kie_view_name: ${var.kie_view_name}
-              volume_path: ${var.volume_path}
+              export_volume_path: ${var.export_volume_path}
 
       max_concurrent_runs: 1
 
       notification_settings:
         no_alert_for_skipped_runs: true
+
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+
+      environments:
+        - environment_key: export_excel_env
+          spec:
+            client: "1"
+            dependencies:
+              - openpyxl
 
       tags:
         project: pipeline_integrity

@@ -25,29 +25,27 @@ dbutils.widgets.text("parsed_table", "", "Parsed Table")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Install Required Libraries
-
-# COMMAND ----------
-
-# MAGIC %pip install "unstructured[xlsx]" markdownify
-dbutils.library.restartPython()
-
-# COMMAND ----------
-
-# MAGIC %run ./_validators
+# MAGIC ## Library Requirements
+# MAGIC
+# MAGIC This notebook requires `unstructured[xlsx]` and `markdownify`.
+# MAGIC When running as a job task, these are installed via `libraries` in `pipeline_job.yml`.
+# MAGIC For interactive use, run: `%pip install "unstructured[xlsx]" markdownify` then restart Python.
 
 # COMMAND ----------
 
 import os
 import tempfile
+import traceback
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StructField, StringType, LongType, IntegerType
 from unstructured.partition.xlsx import partition_xlsx
 from markdownify import markdownify as md
 
+MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB — skip files larger than this
+
 # COMMAND ----------
 
-# Re-extract widget values after Python restart
+# Validate and extract widget values
 catalog_name = validate_identifier(dbutils.widgets.get("catalog_name"), "catalog_name")
 schema_name = validate_identifier(dbutils.widgets.get("schema_name"), "schema_name")
 volume_path = validate_volume_path(dbutils.widgets.get("volume_path"))
@@ -68,27 +66,29 @@ spark.sql(f"USE SCHEMA {schema_name}")
 # COMMAND ----------
 
 def list_files_in_volume(volume_path):
-    """List all files in the volume recursively"""
+    """List all supported files in the volume using os.walk on FUSE mount.
+
+    Uses the local FUSE mount instead of recursive dbutils.fs.ls() calls,
+    which issues one REST API call per directory and becomes slow for large
+    volumes with deep directory trees.
+    """
+    SUPPORTED_EXTENSIONS = {'.pdf', '.xlsx', '.xls', '.xlsm'}
     files = []
 
     try:
-        # Use dbutils to list files
-        all_items = dbutils.fs.ls(volume_path)
-
-        for item in all_items:
-            if item.isDir():
-                # Skip the exports folder written by the export_to_excel task
-                if item.name.rstrip('/') == 'exports':
-                    continue
-                # Recursively scan subdirectories
-                files.extend(list_files_in_volume(item.path))
-            elif item.name.lower().endswith(('.pdf', '.xlsx', '.xls', '.xlsm')):
-                files.append({
-                    'file_path': item.path,
-                    'file_name': item.name,
-                    'file_extension': os.path.splitext(item.name)[1].lower(),
-                    'file_size_bytes': item.size
-                })
+        for dirpath, dirnames, filenames in os.walk(volume_path):
+            # Skip the exports folder written by the export_to_excel task
+            dirnames[:] = [d for d in dirnames if d != 'exports']
+            for fname in filenames:
+                ext = os.path.splitext(fname)[1].lower()
+                if ext in SUPPORTED_EXTENSIONS:
+                    full_path = os.path.join(dirpath, fname)
+                    files.append({
+                        'file_path': full_path,
+                        'file_name': fname,
+                        'file_extension': ext,
+                        'file_size_bytes': os.path.getsize(full_path),
+                    })
     except Exception as e:
         print(f"Error listing files in {volume_path}: {str(e)}")
 
@@ -127,6 +127,26 @@ except Exception as e:
     print(f"Checkpoint table is empty or doesn't exist: {str(e)}")
     new_files_df = files_df
 
+# Filter out files exceeding the size limit
+oversized_df = new_files_df.filter(F.col("file_size_bytes") > MAX_FILE_SIZE_BYTES)
+oversized_count = oversized_df.count()
+if oversized_count > 0:
+    print(f"Skipping {oversized_count} file(s) exceeding {MAX_FILE_SIZE_BYTES // (1024*1024)} MB size limit")
+    oversized_df.select("file_path", "file_name", "file_size_bytes").display()
+    # Record oversized files in checkpoint as skipped
+    oversized_checkpoint = oversized_df \
+        .withColumn("processed_timestamp", F.current_timestamp()) \
+        .withColumn("processing_status", F.lit("skipped_too_large")) \
+        .withColumn("error_message", F.lit(f"File exceeds {MAX_FILE_SIZE_BYTES} byte limit"))
+    oversized_checkpoint.createOrReplaceTempView("oversized_batch")
+    spark.sql(f"""
+        MERGE INTO {checkpoint_table} t
+        USING oversized_batch s ON t.file_path = s.file_path
+        WHEN MATCHED THEN UPDATE SET *
+        WHEN NOT MATCHED THEN INSERT *
+    """)
+
+new_files_df = new_files_df.filter(F.col("file_size_bytes") <= MAX_FILE_SIZE_BYTES)
 new_files_count = new_files_df.count()
 print(f"New files to process: {new_files_count}")
 
@@ -172,7 +192,7 @@ def parse_pdf_files():
                 p.file_extension,
                 b.content
             FROM pdf_files_to_parse p
-            INNER JOIN pdf_binary b ON p.file_path = b.path
+            INNER JOIN pdf_binary b ON p.file_path = replace(b.path, 'dbfs:', '')
         ),
         pdf_parsed AS (
             SELECT
@@ -190,7 +210,7 @@ def parse_pdf_files():
             file_name,
             file_extension,
             text,
-            0 as num_pages,
+            0 as num_pages,  -- ai_parse_document does not return page count
             '' as metadata,
             current_timestamp() as parsed_timestamp
         FROM pdf_parsed
@@ -255,10 +275,11 @@ def xlsx_to_markdown(file_path):
         }
 
     except Exception as e:
+        print(f"Error parsing {file_path}: {traceback.format_exc()}")
         return {
             'text': None,
             'num_pages': 0,
-            'metadata': {'error': str(e)}
+            'metadata': {'error': str(e), 'traceback': traceback.format_exc()}
         }
 
 # COMMAND ----------
@@ -281,7 +302,7 @@ def parse_xlsx_files():
     # Process XLSX files iteratively (more reliable than UDF with serverless)
     xlsx_results = []
 
-    for row in xlsx_files_df.collect():
+    for row in xlsx_files_df.toLocalIterator():
         file_path = row['file_path']
         file_name = row['file_name']
         file_extension = row['file_extension']

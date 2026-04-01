@@ -1,11 +1,11 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # AI Query Processing
+# MAGIC # AI Extract Processing
 # MAGIC
 # MAGIC This notebook:
 # MAGIC 1. Reads parsed file content from the parsed_files table
-# MAGIC 2. Processes each file's content through the ai_query function
-# MAGIC 3. Uses the specified AI endpoint for analysis
+# MAGIC 2. Loads the KIE extraction schema from the co-deployed `kie_schema.json`
+# MAGIC 3. Processes each file's content through the `ai_extract` function
 # MAGIC 4. Stores the results in the ai_query_results table
 
 # COMMAND ----------
@@ -18,18 +18,55 @@ dbutils.widgets.text("catalog_name", "main", "Catalog Name")
 dbutils.widgets.text("schema_name", "pipeline_integrity", "Schema Name")
 dbutils.widgets.text("parsed_table", "", "Parsed Table")
 dbutils.widgets.text("ai_query_table", "", "AI Query Table")
-dbutils.widgets.text("kie_endpoint_name", "", "KIE Endpoint Name")
 
 catalog_name = validate_identifier(dbutils.widgets.get("catalog_name"), "catalog_name")
 schema_name = validate_identifier(dbutils.widgets.get("schema_name"), "schema_name")
 parsed_table = validate_identifier(dbutils.widgets.get("parsed_table"), "parsed_table")
 ai_query_table = validate_identifier(dbutils.widgets.get("ai_query_table"), "ai_query_table")
-kie_endpoint_name = validate_endpoint_name(dbutils.widgets.get("kie_endpoint_name"))
 
 # COMMAND ----------
 
 from pyspark.sql import functions as F
 from pyspark.sql.types import StringType
+
+MAX_INPUT_CHARS = 131_072  # 128 KB limit of ai_extract
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Load KIE Extraction Schema
+
+# COMMAND ----------
+
+import json
+
+_notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+_parts = _notebook_path.rsplit("/", 2)
+if len(_parts) < 3:
+    raise ValueError(
+        f"Cannot derive bundle root from notebook path '{_notebook_path}'. "
+        f"Expected the notebook to be at least 2 levels deep (e.g., .../src/notebook_name)."
+    )
+_bundle_root = _parts[0]
+_schema_path = f"/Workspace{_bundle_root}/kie_schema.json"
+
+try:
+    with open(_schema_path) as f:
+        kie_schema = json.load(f)
+except FileNotFoundError:
+    raise FileNotFoundError(
+        f"KIE schema not found at '{_schema_path}'. "
+        f"Derived from notebook path '{_notebook_path}' -> bundle root '{_bundle_root}'. "
+        f"Ensure kie_schema.json is deployed alongside the notebooks in the bundle."
+    )
+except json.JSONDecodeError as e:
+    raise ValueError(f"KIE schema at '{_schema_path}' is not valid JSON: {e}")
+
+kie_schema_json = json.dumps(kie_schema)
+# Double backslashes so Spark SQL doesn't interpret \n, \t, etc. as control
+# characters inside the string literal, then escape single quotes.
+_kie_schema_sql = kie_schema_json.replace("\\", "\\\\").replace("'", "''")
+print(f"Loaded KIE schema from {_schema_path} ({len(kie_schema.get('properties', {}))} top-level fields)")
 
 # COMMAND ----------
 
@@ -88,18 +125,17 @@ files_to_process_df.select("file_path", "file_name", "file_extension").display()
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Process Files with ai_query Function
+# MAGIC ## Prepare Files for AI Extract
 # MAGIC
-# MAGIC The ai_query function has a text limit. We'll truncate to 131072 characters (128KB) per the example.
+# MAGIC Truncate text to `MAX_INPUT_CHARS` (128 KB limit) before extraction.
 
 # COMMAND ----------
 
-# Prepare data for AI query
-# Truncate text to 131072 characters (128KB limit)
+# Prepare data for AI query — truncate text to MAX_INPUT_CHARS
 input_df = files_to_process_df.select(
     "file_path",
     "file_name",
-    F.substring(F.col("text"), 1, 131072).alias("text")
+    F.substring(F.col("text"), 1, MAX_INPUT_CHARS).alias("text")
 ).filter(
     F.col("text").isNotNull() & (F.length(F.col("text")) > 0)
 )
@@ -114,27 +150,25 @@ print(f"Files with valid text for AI query: {input_count}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Execute AI Query
+# MAGIC ## Execute AI Extract
 # MAGIC
-# MAGIC Using SQL with ai_query function for processing
+# MAGIC Using SQL with ai_extract function for structured extraction
 
 # COMMAND ----------
 
 # Create temporary view for SQL processing
 input_df.createOrReplaceTempView("files_to_query")
 
-# Execute ai_query using SQL
-# Store response as VARIANT for native JSON navigation downstream
+# Execute ai_extract using the KIE schema
 ai_query_results_df = spark.sql(f"""
 WITH query_results AS (
     SELECT
         file_path,
         file_name,
         text AS input,
-        ai_query(
-            '{kie_endpoint_name}',
+        ai_extract(
             text,
-            failOnError => false
+            '{_kie_schema_sql}'
         ) AS response
     FROM files_to_query
 )
@@ -142,8 +176,8 @@ SELECT
     file_path,
     file_name,
     input AS input_text,
-    PARSE_JSON(response.result) AS response,
-    CAST(response.errorMessage AS STRING) AS error_message,
+    response:response AS response,
+    response:error_message AS error_message,
     current_timestamp() AS query_timestamp
 FROM query_results
 """)
@@ -212,7 +246,7 @@ current_batch_df.select(
 # COMMAND ----------
 
 print("=" * 60)
-print("AI Query Processing Complete!")
+print("AI Extract Processing Complete!")
 print("=" * 60)
 print(f"Total files processed: {input_count}")
 print(f"Successful queries: {success_count}")

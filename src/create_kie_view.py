@@ -29,14 +29,100 @@ spark.sql(f"USE SCHEMA {schema_name}")
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## Load KIE Schema for Repairs Struct
+
+# COMMAND ----------
+
+import json
+
+_notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+_parts = _notebook_path.rsplit("/", 2)
+if len(_parts) < 3:
+    raise ValueError(
+        f"Cannot derive bundle root from notebook path '{_notebook_path}'. "
+        f"Expected the notebook to be at least 2 levels deep (e.g., .../src/notebook_name)."
+    )
+_bundle_root = _parts[0]
+_schema_path = f"/Workspace{_bundle_root}/kie_schema.json"
+
+try:
+    with open(_schema_path) as f:
+        kie_schema = json.load(f)
+except FileNotFoundError:
+    raise FileNotFoundError(
+        f"KIE schema not found at '{_schema_path}'. "
+        f"Derived from notebook path '{_notebook_path}' -> bundle root '{_bundle_root}'. "
+        f"Ensure kie_schema.json is deployed alongside the notebooks in the bundle."
+    )
+
+# Build the from_json struct schema for repairs from kie_schema.json
+_JSON_TO_SPARK_TYPES = {"string": "STRING", "number": "DOUBLE", "integer": "INT"}
+_repairs_schema = kie_schema["properties"]["repairs"]["anyOf"][0]["items"]["properties"]
+_struct_fields = []
+for field_name, field_def in _repairs_schema.items():
+    # Each field uses anyOf: [{type: X}, {type: null}] — extract the non-null type
+    json_type = next(t["type"] for t in field_def["anyOf"] if t["type"] != "null")
+    spark_type = _JSON_TO_SPARK_TYPES.get(json_type, "STRING")
+    _struct_fields.append(f"{field_name}: {spark_type}")
+repairs_struct_schema = f"ARRAY<STRUCT<{', '.join(_struct_fields)}>>"
+print(f"Generated repairs struct schema: {repairs_struct_schema}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Check AI Query Results Availability
+
+# COMMAND ----------
+
+if spark.table(ai_query_table).filter("response IS NOT NULL").isEmpty():
+    msg = "SKIPPED: No AI query results available — KIE endpoint may not have been running."
+    print(msg)
+    dbutils.notebook.exit(msg)
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Create KIE Results View
 
 # COMMAND ----------
 
-# Build the view with column-level comments applied via ALTER VIEW afterward,
-# since CREATE VIEW does not support inline column COMMENT syntax.
+# Column comments for Genie / Databricks Assistant discoverability
+column_comments = {
+    "file_path":          "Full path to the source inspection document in the Databricks Volume. Joins to parsed_files and checkpoint tables.",
+    "file_name":          "Base file name with extension, e.g. report.pdf or recoat_data.xlsx.",
+    "query_timestamp":    "UTC timestamp when the AI extraction was performed.",
+    "error_message":      "AI endpoint error message if extraction failed; NULL on success.",
+    "operating_zone":     "Geographical or operational zone where the pipeline is located, e.g. a city, region, or designated area.",
+    "pipeline_name":      "Official name of the pipeline as designated in the project documentation.",
+    "project_name":       "Name of the inspection or maintenance project.",
+    "pipeline_system":    "Name or code of the broader pipeline system this pipeline belongs to.",
+    "pipeline_owner":     "Organization or entity that owns the pipeline.",
+    "location":           "Specific geographic location of the inspection site, may include city, province, landmarks, or coordinates.",
+    "site_id":            "Unique site identifier, also known as Dig Number or Site Name. Examples: GWD 16, Dig #1, JT 388.",
+    "dig_number":         "Dig number identifier for the inspection site. May duplicate site_id or provide an alternative reference.",
+    "project_manager":    "Full name of the project manager overseeing the inspection.",
+    "field_integrity_supervisor": "Full name of the field integrity supervisor on site.",
+    "client_project_engineer":    "Full name of the client-side project engineer.",
+    "inspection_start":   "Date or datetime when the inspection began. Format varies: ISO 8601, e.g. 2017-10-17, or natural language, e.g. October 17, 2017.",
+    "inspection_end":     "Date or datetime when the inspection concluded. Same format as inspection_start.",
+    "pipe_diameter_mm":   "Nominal pipe diameter in millimeters (mm).",
+    "nominal_wall_thickness_mm": "Nominal pipe wall thickness in millimeters (mm).",
+    "material_grade_SMYS_MPa":   "Specified Minimum Yield Strength (SMYS) of the pipe material in megapascals (MPa).",
+    "max_allowable_operating_pressure_kPa": "Maximum Allowable Operating Pressure (MAOP) of the pipeline in kilopascals (kPa).",
+    "recoating":          "Complex nested structure with recoating details including coating type, application method, primer, and axial positions. Stored as VARIANT.",
+    "repairs":            "Array of repair records. Each element is a struct with: repair_start (date), repair_end (date), relative_repair_start (axial position), relative_repair_end (axial position), reference_units (mm or m), repair_type (e.g. Recoat, Compression Sleeve, Patch, Clock Spring), and rgw (Reference Girth Weld number). Use EXPLODE(repairs) to flatten into one row per repair.",
+}
+
+# Build the column list with inline COMMENT clauses from the map
+column_defs = ",\n    ".join(
+    f"{col} COMMENT '{comment.replace(chr(39), chr(92) + chr(39))}'"
+    for col, comment in column_comments.items()
+)
+
 spark.sql(f"""
-CREATE OR REPLACE VIEW {kie_view_name}
+CREATE OR REPLACE VIEW {kie_view_name} (
+    {column_defs}
+)
 COMMENT 'Typed, column-level projection of the AI-extracted pipeline inspection data (KIE schema). Each row represents one successfully processed inspection document. Scalar fields are cast to their native types; the repairs array is a typed struct array that can be exploded for per-repair analysis. This is the primary view for Genie Spaces, dashboards, and Excel exports. Source: ai_query_results table (response VARIANT column).'
 AS
 SELECT
@@ -67,53 +153,14 @@ SELECT
     response:max_allowable_operating_pressure_kPa::INT     AS max_allowable_operating_pressure_kPa,
     -- Recoating details (complex nested structure)
     response:recoating                                     AS recoating,
-    -- Repairs: typed struct array for per-repair analysis
+    -- Repairs: typed struct array for per-repair analysis (schema from kie_schema.json)
     from_json(
         CAST(response:repairs AS STRING),
-        'ARRAY<STRUCT<
-            repair_start: STRING,
-            repair_end: STRING,
-            relative_repair_start: DOUBLE,
-            relative_repair_end: DOUBLE,
-            reference_units: STRING,
-            repair_type: STRING,
-            rgw: INT
-        >>'
+        '{repairs_struct_schema}'
     ) AS repairs
 FROM {ai_query_table}
 WHERE response IS NOT NULL
 """)
-
-# Apply column-level comments for Genie / Databricks Assistant discoverability
-column_comments = {
-    "file_path":          "Full path to the source inspection document in the Databricks Volume. Joins to parsed_files and checkpoint tables.",
-    "file_name":          "Base file name with extension, e.g. report.pdf or recoat_data.xlsx.",
-    "query_timestamp":    "UTC timestamp when the AI extraction was performed.",
-    "error_message":      "AI endpoint error message if extraction failed; NULL on success.",
-    "operating_zone":     "Geographical or operational zone where the pipeline is located, e.g. a city, region, or designated area.",
-    "pipeline_name":      "Official name of the pipeline as designated in the project documentation.",
-    "project_name":       "Name of the inspection or maintenance project.",
-    "pipeline_system":    "Name or code of the broader pipeline system this pipeline belongs to.",
-    "pipeline_owner":     "Organization or entity that owns the pipeline.",
-    "location":           "Specific geographic location of the inspection site, may include city, province, landmarks, or coordinates.",
-    "site_id":            "Unique site identifier, also known as Dig Number or Site Name. Examples: GWD 16, Dig #1, JT 388.",
-    "dig_number":         "Dig number identifier for the inspection site. May duplicate site_id or provide an alternative reference.",
-    "project_manager":    "Full name of the project manager overseeing the inspection.",
-    "field_integrity_supervisor": "Full name of the field integrity supervisor on site.",
-    "client_project_engineer":    "Full name of the client-side project engineer.",
-    "inspection_start":   "Date or datetime when the inspection began. Format varies: ISO 8601, e.g. 2017-10-17, or natural language, e.g. October 17, 2017.",
-    "inspection_end":     "Date or datetime when the inspection concluded. Same format as inspection_start.",
-    "pipe_diameter_mm":   "Nominal pipe diameter in millimeters (mm).",
-    "nominal_wall_thickness_mm": "Nominal pipe wall thickness in millimeters (mm).",
-    "material_grade_SMYS_MPa":   "Specified Minimum Yield Strength (SMYS) of the pipe material in megapascals (MPa).",
-    "max_allowable_operating_pressure_kPa": "Maximum Allowable Operating Pressure (MAOP) of the pipeline in kilopascals (kPa).",
-    "recoating":          "Complex nested structure with recoating details including coating type, application method, primer, and axial positions. Stored as VARIANT.",
-    "repairs":            "Array of repair records. Each element is a struct with: repair_start (date), repair_end (date), relative_repair_start (axial position), relative_repair_end (axial position), reference_units (mm or m), repair_type (e.g. Recoat, Compression Sleeve, Patch, Clock Spring), and rgw (Reference Girth Weld number). Use EXPLODE(repairs) to flatten into one row per repair.",
-}
-
-for col_name, comment in column_comments.items():
-    safe_comment = comment.replace("'", "\\'")
-    spark.sql(f"ALTER VIEW {kie_view_name} ALTER COLUMN {col_name} COMMENT '{safe_comment}'")
 
 print(f"✓ View '{kie_view_name}' created successfully")
 

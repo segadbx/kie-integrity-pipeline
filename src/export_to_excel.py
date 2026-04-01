@@ -10,34 +10,40 @@
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog_name", "main", "Catalog Name")
-dbutils.widgets.text("schema_name", "pipeline_integrity", "Schema Name")
-dbutils.widgets.text("kie_view_name", "", "KIE View Name")
-dbutils.widgets.text("volume_path", "/Volumes/dbdemos_skhaletski/default/recoat_data/", "Volume Path")
-
-# COMMAND ----------
-
-# MAGIC %pip install openpyxl
-dbutils.library.restartPython()
-
-# COMMAND ----------
-
 # MAGIC %run ./_validators
 
 # COMMAND ----------
 
-# Re-read widgets after Python restart
+dbutils.widgets.text("catalog_name", "main", "Catalog Name")
+dbutils.widgets.text("schema_name", "pipeline_integrity", "Schema Name")
+dbutils.widgets.text("kie_view_name", "", "KIE View Name")
+dbutils.widgets.text("export_volume_path", "", "Export Volume Path")
+dbutils.widgets.text("max_export_rows", "100000", "Max Export Rows")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Library Requirements
+# MAGIC
+# MAGIC This notebook requires `openpyxl`.
+# MAGIC When running as a job task, it is installed via `libraries` in `pipeline_job.yml`.
+# MAGIC For interactive use, run: `%pip install openpyxl` then restart Python.
+
+# COMMAND ----------
+
+# Validate and extract widget values
 catalog_name = validate_identifier(dbutils.widgets.get("catalog_name"), "catalog_name")
 schema_name = validate_identifier(dbutils.widgets.get("schema_name"), "schema_name")
 kie_view_name = validate_identifier(dbutils.widgets.get("kie_view_name"), "kie_view_name")
-volume_path = validate_volume_path(dbutils.widgets.get("volume_path"))
+export_volume_path = validate_volume_path(dbutils.widgets.get("export_volume_path"))
+max_export_rows = int(dbutils.widgets.get("max_export_rows"))
 
 # COMMAND ----------
 
 import os
 import shutil
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 import pandas as pd
 
 # COMMAND ----------
@@ -49,6 +55,25 @@ import pandas as pd
 
 spark.sql(f"USE CATALOG {catalog_name}")
 spark.sql(f"USE SCHEMA {schema_name}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Check KIE View Availability
+
+# COMMAND ----------
+
+try:
+    has_data = not spark.table(kie_view_name).limit(1).isEmpty()
+except Exception:
+    has_data = False
+
+if not has_data:
+    msg = "SKIPPED: KIE view has no data — upstream processing may have been skipped."
+    print(msg)
+    dbutils.notebook.exit(msg)
+
+# COMMAND ----------
 
 # Explode the typed repairs array — one row per repair per file.
 # Recoat repairs (repair_type = 'Recoat') populate the recoat position columns;
@@ -69,11 +94,10 @@ export_spark_df = spark.sql(f"""
 """)
 
 # Guard against collecting too many rows to the driver
-MAX_EXPORT_ROWS = 100_000
 row_count = export_spark_df.count()
-if row_count > MAX_EXPORT_ROWS:
+if row_count > max_export_rows:
     raise ValueError(
-        f"Export has {row_count} rows, exceeding the {MAX_EXPORT_ROWS} limit. "
+        f"Export has {row_count} rows, exceeding the {max_export_rows} limit. "
         "Consider filtering or partitioning the export."
     )
 
@@ -92,12 +116,11 @@ if total == 0:
 
 # COMMAND ----------
 
-export_dir = os.path.join(volume_path.rstrip("/"), "exports")
-os.makedirs(export_dir, exist_ok=True)
+os.makedirs(export_volume_path.rstrip("/"), exist_ok=True)
 
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 excel_filename = f"recoat_analysis_{timestamp}.xlsx"
-excel_path = os.path.join(export_dir, excel_filename)
+excel_path = os.path.join(export_volume_path.rstrip("/"), excel_filename)
 
 # openpyxl uses zipfile internally which requires seekable I/O.
 # Databricks Volume FUSE mounts don't support seek, so write to a
@@ -110,6 +133,9 @@ try:
     shutil.copy2(tmp_path, excel_path)
 finally:
     os.unlink(tmp_path)
+
+if not os.path.exists(excel_path) or os.path.getsize(excel_path) == 0:
+    raise IOError(f"Excel write verification failed: file missing or empty at {excel_path}")
 
 print(f"✓ Exported {total} records to {excel_path}")
 

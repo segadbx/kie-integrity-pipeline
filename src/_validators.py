@@ -11,7 +11,7 @@ import re
 
 def validate_identifier(name, label="identifier"):
     """Validate that a string is a safe SQL identifier (catalog.schema.table)."""
-    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_.]*$', name):
+    if not re.match(r'^[a-zA-Z_]\w*(\.[a-zA-Z_]\w*)*$', name):
         raise ValueError(f"Invalid {label}: {name!r}")
     return name
 
@@ -20,9 +20,3 @@ def validate_volume_path(path):
     if not path.startswith("/Volumes/"):
         raise ValueError(f"Invalid volume path (must start with /Volumes/): {path!r}")
     return path
-
-def validate_endpoint_name(name):
-    """Validate endpoint name (alphanumeric, hyphens, underscores)."""
-    if not re.match(r'^[a-zA-Z0-9_-]+$', name):
-        raise ValueError(f"Invalid endpoint name: {name!r}")
-    return name

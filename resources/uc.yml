@@ -3,8 +3,17 @@ resources:
     uc_schema:
       name: ${var.schema_name}
       catalog_name: ${var.catalog_name}
+      comment: "Pipeline integrity inspection data: parsed documents, AI extraction results, and export artifacts."
   volumes:
     reports_volume:
       name: reports
       catalog_name: ${var.catalog_name}
       schema_name: ${var.schema_name}
+      volume_type: MANAGED
+      comment: "Input volume for pipeline inspection files (PDF and Excel)."
+    exports_volume:
+      name: exports
+      catalog_name: ${var.catalog_name}
+      schema_name: ${var.schema_name}
+      volume_type: MANAGED
+      comment: "Output volume for exported Excel reports."
